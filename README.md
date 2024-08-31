@@ -19,4 +19,4 @@ Pour vérifier que toutes les dépendances nécessaires sont bien installées, v
 
 Si la vérification échoue, cela signifie que certains outils requis ne sont pas installés. Si vous êtes sur une distribution basée sur Debian, il vous suffit d'exécuter la commande suivante pour installer automatiquement toutes les dépendances manquantes : `vulturesec -install`
 
-Note : Dans cette version de VultureSec, l'outil nuclei n'est pas nécessaire. Ainsi, si la commande vulturesec -td échoue en raison de l'absence de nuclei, vous pouvez simplement ignorer cette erreur pour le moment.
+Note : Dans cette version de VultureSec, l'outil nuclei n'est pas nécessaire. Ainsi, si la commande `vulturesec -td` échoue en raison de l'absence de nuclei, vous pouvez simplement ignorer cette erreur pour le moment.
