@@ -409,7 +409,7 @@ int main(int argc, char *argv[]) {
             && checkDependencies("WPscan", "wpscan --help > /dev/null 2> /dev/null") == 0 
             && checkDependencies("Searchsploit", "searchsploit exemple > /dev/null 2> /dev/null") == 0
             && checkDependencies("Enum4Linux", "enum4linux --help > /dev/null 2> /dev/null") == 255
-            && checkDependencies("nuclei","nuclei > /dev/null 2> /dev/null") == 0
+            && checkDependencies("nuclei","nuclei --help > /dev/null 2> /dev/null") == 0
             //si une erreur apparait les testes suivant s'arrête
         ) {
             printf("\033[42mToutes les dépendances sont fonctionnels\033[0m\n");
