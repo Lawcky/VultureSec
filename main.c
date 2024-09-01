@@ -3,6 +3,11 @@
 #include <string.h>
 #include <unistd.h>
 
+// outils à rajouter : dirsearch (site internet), subfinder (nom de domaine), implémenter nuclei
+// a ajouter également la création du dossier "target" avec tout les scans à l'intérieur (potentiellement une options pour preciser le dossier)
+
+//ajout d'une option pour lire un fichier nmap et en sortir les vuln avec searchsploit
+
 int website_found, ssh_found, smb_found, dns_found = 0;
 //variable global pour les scans additionnel dans main(), ils sont set dans portChecking()
 
@@ -69,38 +74,6 @@ int nmapVulnScanner(char target[]) {
         perror("\033[31mErreur lors de l'exécution de nmap\033[0m\n");
         return 1;
     } 
-
-    // Filtrer les résultats pour trouver les services ouverts et les enregistrer dans allServices.txt
-    if (system("grep 'open' nmapScan.txt | awk '{print $1, $3, $4, $5}' | uniq > allServices.txt") == -1) {
-        perror("Erreur lors de l'exécution de grep et awk");
-        return 1;
-    }
-}
-
-int searchsploitSearch() {
-    // Lire allServices.txt et exécuter searchsploit pour chaque service/version trouvé
-    FILE *servicesFile = fopen("allServices.txt", "r");
-    if (servicesFile == NULL) {
-        perror("\033[31mErreur lors de l'ouverture de allServices.txt\033[0m\n");
-        return 1;
-    }
-
-    char ports[20], typeService[50], service[50], version[50];
-    char searchsploitCommand[350];
-
-    while (fscanf(servicesFile, "%19s %49s %49s %49s", ports, typeService, service, version) == 4) {
-        snprintf(searchsploitCommand, sizeof(searchsploitCommand), "searchsploit \"%s %s\"", service, version);
-        printf("\033[4;31mService : %s %s\033[0m\n", service, version);
-        if (system(searchsploitCommand) == -1) {
-            perror("\033[31mErreur lors de l'exécution de searchsploit\033[0m\n");
-            fclose(servicesFile);
-            return 1;
-        }
-        printf("\n");
-    }
-
-    fclose(servicesFile);
-    return 0;
 }
 
 int niktoWebsiteScanner(int website_found,char website[]) {
@@ -159,6 +132,74 @@ int wpscanWordpressScanner(int website_found, char target[]) {
         }
 
     } else {return 0;}
+}
+
+int filterNmapOutput(char *inputFile, char *outputFile) {
+    // create the filtering command
+    char filteringCommand[256];
+    snprintf(filteringCommand, sizeof(filteringCommand), "grep 'open' %s | awk '{print $1, $3, $4, $5}' | uniq > %s", inputFile, outputFile);
+
+    // Execute the filtering command
+    if (system(filteringCommand) == -1) {
+        perror("Erreur lors de l'exécution de grep et awk");
+        return 1;
+    }
+
+    return 0;
+}
+
+int searchFileVulnerabilities(char *filteredFile, int beenFiltered) {
+
+    if (beenFiltered == 0) {
+        //the file hasn't been filtered
+        printf("\033[33m[Warning]\033[0mCette option à été conçu pour lire un fichier mis dans le même format que l'output classique de Nmap soit:\n");
+        printf("\033[1mPORT SERVICE VERSION\033[0m\n");
+        printf("Des erreurs peuvent apparaitre si le format n'est pas respecté.\n\n");
+    }
+
+    
+    FILE *servicesFile = fopen(filteredFile, "r");
+    if (servicesFile == NULL) {
+        fprintf(stderr, "\033[31mErreur lors de l'ouverture de %s\033[0m\n", filteredFile);
+        return 1;
+    }
+
+    char ports[20], typeService[50], service[50], version[50];
+    char searchsploitCommand[350];
+    char buffer[300];
+
+    // Read the filtered services file and search for vulnerabilities
+    while (fgets(buffer, sizeof(buffer), servicesFile) != NULL) {
+        int fieldCount = sscanf(buffer, "%19s %49s %49s %49s", ports, typeService, service, version);
+
+        if (fieldCount < 3) {
+            // If there are fewer than 3 fields skip this line
+            continue;
+        }
+
+        printf("\033[4;31mService : %s %s\033[0m\n", service, (fieldCount == 4) ? version : "(no version)");
+
+        // Build the searchsploit command based on available fields
+        if (fieldCount == 4) {
+            // If the line has all four fields
+            snprintf(searchsploitCommand, sizeof(searchsploitCommand), "searchsploit \"%s %s\"", service, version);
+        } else {
+            // If the line is missing the version
+            snprintf(searchsploitCommand, sizeof(searchsploitCommand), "searchsploit \"%s\"", service);
+        }
+
+        if (system(searchsploitCommand) == -1) {
+            perror("\033[31mErreur lors de l'exécution de searchsploit\033[0m\n");
+            fclose(servicesFile);
+            return 1;
+        }
+
+        printf("\n");
+    }
+        
+        fclose(servicesFile);
+        return 0;
+    
 }
 
 int portChecking() {
@@ -255,13 +296,55 @@ int main(int argc, char *argv[]) {
 
     int td_found = 0; // test-dependencies
     int install_found = 0; // install-dependencies
+    int search_found = 0; // search file
     //liste des argument autorisé
 
     if (strcmp(argv[1], "-td") == 0) {
         //verifie le premier argument pour les arg de verification/installation (evite le crash si une cible est renseigné à la place)
         td_found = 1;
-    } else if (strcmp(argv[1], "-install") == 0) {
+    } else if (strcmp(argv[1], "--install") == 0) {
         install_found = 1;
+
+    } else if ((strcmp(argv[1], "--search") == 0) || (strcmp(argv[1], "-s") == 0)) {
+        // A file has been given
+        search_found = 1;
+        //it has been filtered
+        char nmapFile[256], filteredFile[300];
+        strncpy(nmapFile, argv[1+1], sizeof(nmapFile) - 1);
+        nmapFile[sizeof(nmapFile) - 1] = '\0';
+
+        snprintf(filteredFile, sizeof(filteredFile), "services.%s", nmapFile);
+
+        // Filter the file's content to retrieve only services in nmap output format
+        if (filterNmapOutput(nmapFile, filteredFile) == 0) {
+            // Search those services using searchsploit
+            if (searchFileVulnerabilities(filteredFile, search_found) == 0) {
+                return 0;
+            } else {
+                fprintf(stderr, "\033[31mErreur lors de l'exécution de searchsploit\033[0m\n");
+                return 1;
+            }
+        } else {
+            fprintf(stderr, "\033[31mErreur lors de l'exécution de filterNmapOutput\033[0m\n");
+            return 1;
+        }
+
+
+    } else if ((strcmp(argv[1], "--unfiltered-search") == 0) || (strcmp(argv[1], "-us") == 0)) {
+        // A file has been given
+        search_found = 0;
+        //it hasn't been filtered
+        char File[256];
+        strncpy(File, argv[1+1], sizeof(File) - 1);
+        File[sizeof(File) - 1] = '\0';
+
+        // Filter the file's content to retrieve only services in nmap output format
+        if (searchFileVulnerabilities(File, search_found) == 0) {
+            return 0;
+        } else {
+            fprintf(stderr, "\033[31mErreur lors de l'exécution de searchsploit\033[0m\n");
+            return 1;
+        }
     }
 
     for (int i = 2; i < argc ; i++) { 
@@ -269,11 +352,51 @@ int main(int argc, char *argv[]) {
 
         if (strcmp(argv[i], "-td") == 0) {
             td_found = 1;
+
+
         } else if (strcmp(argv[i], "-install") == 0) {
             install_found = 1;
-        } else {
-            fprintf(stderr, "\033[31mErreur: argument %s inconnu\033[0m\n", argv[i]);
-            return 1;
+
+
+        } else if ((strcmp(argv[i], "-search") == 0) || (strcmp(argv[i], "-s") == 0)) {
+            // A file has been given
+            search_found = 1;
+            //it has been filtered
+            char nmapFile[256], filteredFile[300];
+            strncpy(nmapFile, argv[i+1], sizeof(nmapFile) - 1);
+            nmapFile[sizeof(nmapFile) - 1] = '\0';
+            snprintf(filteredFile, sizeof(filteredFile), "services.%s", nmapFile);
+
+            // Filter the file's content to retrieve only services in nmap output format
+            if (filterNmapOutput(nmapFile, filteredFile) == 0) {
+                // Search those services using searchsploit
+                if (searchFileVulnerabilities(filteredFile, search_found) == 0) {
+                    return 0;
+                } else {
+                    fprintf(stderr, "\033[31mErreur lors de l'exécution de searchsploit\033[0m\n");
+                    return 1;
+                }
+            } else {
+                fprintf(stderr, "\033[31mErreur lors de l'exécution de filterNmapOutput\033[0m\n");
+                return 1;
+            }
+
+
+        } else if ((strcmp(argv[i], "--unfiltered-search") == 0) || (strcmp(argv[i], "-us") == 0)) {
+            // A file has been given
+            search_found = 0;
+            //it hasn't been filtered
+            char File[256];
+            strncpy(File, argv[i+1], sizeof(File) - 1);
+            File[sizeof(File) - 1] = '\0';
+
+            // Filter the file's content to retrieve only services in nmap output format
+            if (searchFileVulnerabilities(File, search_found) == 0) {
+                return 0;
+            } else {
+                fprintf(stderr, "\033[31mErreur lors de l'exécution de searchsploit\033[0m\n");
+                return 1;
+            }
         }
     }
 
@@ -286,6 +409,7 @@ int main(int argc, char *argv[]) {
             && checkDependencies("WPscan", "wpscan --help > /dev/null 2> /dev/null") == 0 
             && checkDependencies("Searchsploit", "searchsploit exemple > /dev/null 2> /dev/null") == 0
             && checkDependencies("Enum4Linux", "enum4linux --help > /dev/null 2> /dev/null") == 255
+            && checkDependencies("nuclei","nuclei > /dev/null 2> /dev/null") == 0
             //si une erreur apparait les testes suivant s'arrête
         ) {
             printf("\033[42mToutes les dépendances sont fonctionnels\033[0m\n");
@@ -359,9 +483,7 @@ int main(int argc, char *argv[]) {
         printf("\033[1;45;37mLes dépendances n'ont pas été tester\033[0m\n");
     }
 
-
-
-
+    //-------------------------------------------------------------------------------------------------
     //debut des actions automatiques
 
 
@@ -387,7 +509,8 @@ int main(int argc, char *argv[]) {
 
     } else {
         printf("\n\n\033[1;45;31mRecherche de CVE via ExploitDB\033[0m\n\n");
-        searchsploitSearch();
+        filterNmapOutput("nmapScan.txt", "allServices.txt");
+        searchFileVulnerabilities("allServices.txt", 1);
         // utilise les fichiers du scan précédent pour faire des recherches de vulnérabilité via ExploitDB
 
         printf("\n\033[1;45;36mRecherche des services pour scans additionnels\033[0m\n\n");
