@@ -93,6 +93,54 @@ int searchFileVulnerabilities(const char *filteredFile, const int beenFiltered) 
 /////////////////////////////////////////////////////////////
 
 
+//recupère l'url du site pour futur scan
+char* getSiteURL() {
+    static char url[256];  // Taille maximale pour stocker l'URL
+    printf("\nEntrez l'URL du site à scanner: ");
+
+    // Utilisation de scanf pour capturer l'URL
+    if (scanf("%255s", url) == 1) {
+        return url;  // Retourne l'URL saisie
+    } else {
+        fprintf(stderr, "Erreur lors de la lecture de l'URL.\n");
+        return NULL;
+    }
+}
+
+//fonction pour recupéré la clé api de WPscan dans ~/.wpscankey
+char* getWpscanAPIKey() {
+    
+    static char apiKey[64];  // Taille maximale pour la clé API
+    char *homeDir = getenv("HOME");  // Récupère le chemin vers le home directory
+    if (homeDir == NULL) {
+        fprintf(stderr, "Erreur: Impossible de trouver le home directory.\n");
+        return NULL;
+    }
+
+    // Construire le chemin vers ~/.wpscankey
+    char keyFilePath[64];
+    snprintf(keyFilePath, sizeof(keyFilePath), "%s/.wpscankey", homeDir);
+
+    FILE *file = fopen(keyFilePath, "r");
+    if (file == NULL) {
+        // Si le fichier n'existe pas ou ne peut pas être lu
+
+        fprintf(stderr, "Le fichier %s n'existe pas ou ne peut être lu.\n", keyFilePath);
+        return NULL;
+    }
+
+    if (fgets(apiKey, sizeof(apiKey), file) != NULL) {
+
+        apiKey[strcspn(apiKey, "\n")] = '\0';  // Supprimer le retour à la ligne de l'API Key
+        fclose(file);
+        return apiKey;
+    } else {
+
+        fprintf(stderr, "Le fichier %s est vide ou ne peut être lu correctement.\n", keyFilePath);
+        fclose(file);
+        return NULL;
+    }
+}
 
 
 /////////////////////////////////////////////////////////////
@@ -267,18 +315,37 @@ void enum4linuxSMBvulnScanner(int smb_found, const char directoryName[], const c
 
 // pour ces 3 : 
 // - rajouter une fonction qui demandera l'url 
-// - ajouter une fonction pour lire et ajouter la clé WPSCAN aulieu de l'hardcoded
-void wpscanWordpressScanner(int website_found, const char directoryName[], const char target[]) {
+
+void wpscanWordpressScanner(int website_found, const char directoryName[], char target[]) {
     //Function pour le scan de WPscan
+
+    char *url = getSiteURL();  // getSiteURL retourne un pointeur, pas une chaîne directement
+
+    if (url != NULL && strlen(url) > 4) {  
+        strncpy(url, target, sizeof(url) - 1);  
+        url[sizeof(url) - 1] = '\0'; 
+    } 
+
     if (website_found) {
 
         printf("\n\033[1;45;33mADDITIONNEL: Scan WordPress via WPscan (avec Token)\033[0m\n\n");
 
-        char enum4linuxCommand[100];
-        snprintf(enum4linuxCommand, sizeof(enum4linuxCommand), "wpscan --url %s --api-token CxGjO8T0AaTs9WmoJXMQemLNlgOytE2jXe6LJzxGczs -o %s/wpScan.txt", target, directoryName);
+        //recupération de la clé api si présente
+        char *apiKey = getWpscanAPIKey();
+        char apikeyInput[64];
+        
+        char wpscanCommand[128];
+        if (apiKey == NULL) {
+            printf("\033[43m[Warning]\033[0mAucune clé d'api trouvé dans ~/.wpscankey\n");
+            snprintf(wpscanCommand, sizeof(wpscanCommand), "wpscan --url %s -o %s/wpScan.txt", url, directoryName);
+        } else {
+            snprintf(apikeyInput, sizeof(apikeyInput), "--api-token %s", apiKey);
+            snprintf(wpscanCommand, sizeof(wpscanCommand), "wpscan --url %s %s -o %s/wpScan.txt", url, apikeyInput, directoryName);
+        }
 
+        printf("%s\n", wpscanCommand);
         printf("\n\033[1mCela peut prendre un peu de temps veuillez patienter...\033[0m\n");
-        if (system(enum4linuxCommand) == -1) {
+        if (system(wpscanCommand) == -1) {
             perror("\033[31mErreur lors de l'exécution de WPscan\033[0m\n");
             return;
         } else {
@@ -420,7 +487,7 @@ void additionnalTesting(const char directoryName[], char target[], const int web
         printf("\n");
 
         if (input == 'y') { 
-            dirsearchWeb(1, target);
+            dirsearchWeb(1,directoryName, target);
         } else {
             printf("l'énumération dirsearch ne sera pas réalisé.\n");
         }
@@ -526,7 +593,6 @@ int main(int argc, char *argv[]) {
     } 
     
     int argVariable = argumentChecking(argc, argv);
-
 
     if (td_found) {
         //si l'option pour tester les dépendence (-td) est présente
@@ -705,6 +771,7 @@ int main(int argc, char *argv[]) {
         }
 
     } 
+
 }
 
 
