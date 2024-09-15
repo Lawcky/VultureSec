@@ -11,7 +11,7 @@ L'objectif final de VultureSec est de fournir un scan simple et automatisé, sp�
 **Disclaimer :** Je ne suis pas un développeur, j'ai réalisé ce projet en C principalement pour m'entraîner et mieux comprendre le langage. Ce code est juste un Script en C réalisé par envie d'apprendre le language & l'envie d'automatisation par quelqu'un qui en avait marre de mettre toujours les "mêmes commandes" dans le meme ordre.
 Il est donc probable (et certains) qu'il contienne des erreurs ou des problèmes d'optimisations. Si vous avez des idées pour l'améliorer ou des suggestions d'ajouts, n'hésitez pas à me les proposer.
 
-Liste des outils utilisé : [Nmap](https://github.com/nmap/nmap), [Nikto](https://github.com/sullo/nikto), [Searchsploit](https://github.com/rad10/SearchSploit.py), [Enum4Linux](https://github.com/rad10/SearchSploit.py), [Dirsearch](https://github.com/rad10/SearchSploit.py), [WPscan](https://github.com/wpscanteam/wpscan)
+Liste des outils implémenter au jour d'aujourd'hui : [Nmap](https://github.com/nmap/nmap), [Nikto](https://github.com/sullo/nikto), [Searchsploit](https://github.com/rad10/SearchSploit.py), [Enum4Linux](https://github.com/rad10/SearchSploit.py), [Dirsearch](https://github.com/rad10/SearchSploit.py), [WPscan](https://github.com/wpscanteam/wpscan)
 
 ## Installation
 
