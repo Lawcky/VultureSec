@@ -6,27 +6,135 @@
 #include <time.h>
 #include <sys/stat.h>
 
-// outils à rajouter : subfinder (nom de domaine), implémenter nuclei
-// a ajouter également la création du dossier "target" avec tout les scans à l'intérieur (potentiellement une options pour preciser le dossier)
-// à ajouter : creation d'un readme pour chaque cible qui regroupera les informations pour chaque scans pour meilleur suivi. 
+/*
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////|
+MESSAGE
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////|
+Par : Lawcky
+site: https://lawcky.net
 
-int website_found, ssh_found, smb_found, dns_found = 0;
+Voici le code pour VultureSec.
+
+Il s'agit d'un script en C qui automatise le processus de scan et d'énumération d'une cible.
+
+Je l'ai conçu principalement pour être utilisé lors de CTF de type Boot2Root ou FullPWN.
+
+Disclaimer : Je ne suis pas un développeur expérimenter, et j'ai réalisé ce projet en C principalement pour m'entraîner et mieux comprendre le langage. 
+Il est donc probable qu'il contienne des erreurs ou des problèmes d'optimisations. Si vous avez des idées pour l'améliorer ou des suggestions d'ajouts, n'hésitez pas à me les proposer.
+
+y
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////|
+INFO
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////|
+
+une fois lancer un dossier sera créé avec le jour, l'heure et la minute du scan, tout les fichier seront envoyé dedans.
+
+pour les scans WPscan : le code recherchera une clé API dans ~/.wpscankey (juste la clé)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////|
+*/
+
+// outils à rajouter : [subfinder (nom de domaine)] ?[implémenter nuclei]? [...]
+// à ajouter OPTION: [preciser un dossier où écrire] [une option --help] [...]
+// à ajouter CODE : [creation d'un "readme" pour chaque cible qui regroupera les informations pour chaque scans pour meilleur suivi] [ajouter à targetSnatcher() l'option de trouver la cible via un fichier NMAP] [...]
+
+
+
+/////////////////////////////////////////////////////////////|
+//////////////////////VARIABLES GLOBALE//////////////////////|
+/////////////////////////////////////////////////////////////|
+
+
 //variable global pour les scans additionnel dans main(), ils sont set dans servicesChecker()
+int website_found, ssh_found, smb_found, dns_found;
 
 
+//variable global pour les options donnée par l'utilisateur, ils sont set dans argumentChecking()
 int td_found = 0; // test-dependencies
 int install_found = 0; // install-dependencies
 int toBeFiltered = 0, search_found = 0; // search file 0 = unfiltered-search & 1 = filtered-search
-//variable global pour les options dans main(), ils sont set dans argumentChecking()
+
+
+/////////////////////////////////////////////////////////////|
+/////////////////////////////////////////////////////////////|
 
 
 
-/////////////////////////////////////////////////////////////
-//////////////////////////UNTOCUHED//////////////////////////
-/////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////|
+/////////////////////FONCTION UTILITAIRE/////////////////////|
+/////////////////////////////////////////////////////////////|
 
+
+//verifie que la commande donnée est bien installé et fonctionnel
+int checkDependencies(const char *prog, const char *command) {
+    
+   
+    // Vérification des arguments d'entrée
+    if (prog == NULL || command == NULL) {
+        fprintf(stderr, "\033[41mArguments invalides : prog ou command est NULL.\033[0m\n");
+        return 1;
+    }
+
+    int status = system(command);
+    
+    if (status == -1) {
+        // Une erreur system()
+        fprintf(stderr, "\033[41mErreur lors de l'exécution de la commande : %s. Raison : %s\033[0m\n", command, strerror(errno));
+        return 1;
+
+    } else if (WIFEXITED(status)) {
+        // Vérification que la commande s'est arrêtée normalement
+        int exit_code = WEXITSTATUS(status);
+
+        // Traitement spécial pour Enum4Linux qui retourne != 0
+        if (strcmp(prog, "Enum4Linux") == 0 && exit_code == 255) {
+            printf("\033[32m%s est installé et fonctionne correctement.\033[0m\n", prog);
+            return 0;  // On retourne 0 ici puisque le programme a fonctionné comme attendu
+        }
+
+        // Vérification du code de sortie pour les autres programmes
+        if (exit_code == 0) {
+            printf("\033[32m%s est installé et fonctionne correctement.\033[0m\n", prog);
+            return 0;
+        } else {
+            fprintf(stderr, "\033[31m%s n'a pas fonctionné correctement (code de sortie : %d).\033[0m\n", prog, exit_code);
+            return exit_code;
+        }
+        
+    } else {
+        // Si la commande ne s'est pas terminée normalement
+        fprintf(stderr, "\033[31mLa commande %s n'a pas terminé normalement.\033[0m\n", command);
+        return 1;
+    }
+}
+
+// Fonction pour créer un dossier avec le format "scan(%d-%H-%M)"
+int createScanDirectory(char *directoryName, size_t size) {
+    
+    
+    // Récupérer la date et l'heure actuelle
+    time_t rawtime;
+    struct tm *timeinfo;
+
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+
+    // Formater le nom du dossier: scan(%d-%H-%M)
+    snprintf(directoryName, size, "secscan%02d-%02dh-%02dm", 
+             timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min);
+
+    // Créer le dossier avec les permissions par défaut (0755)
+    if (mkdir(directoryName, 0755) != 0) {
+        fprintf(stderr, "\033[31mErreur lors de la création du dossier %s : %s\033[0m\n", directoryName, strerror(errno));
+        return 1;
+    }
+
+    return 0;
+}
+
+//filtre un fichier et crée un fichier avec une liste de service & version
 int filterNmapOutput(char *inputFile, char *outputFile) {
-    // create the filtering command
+
     char filteringCommand[256];
     snprintf(filteringCommand, sizeof(filteringCommand), "grep 'open' %s | awk '{print $1, $3, $4, $5}' | uniq > %s", inputFile, outputFile);
 
@@ -39,6 +147,7 @@ int filterNmapOutput(char *inputFile, char *outputFile) {
     return 0;
 }
 
+// function cherche des CVEs dans une liste de services & version (filtré par filterNmapOutput)
 int searchFileVulnerabilities(const char *filteredFile, const int beenFiltered) {
 
     if (beenFiltered == 0) {
@@ -90,153 +199,9 @@ int searchFileVulnerabilities(const char *filteredFile, const int beenFiltered) 
     return 0;
 }
 
-/////////////////////////////////////////////////////////////
-
-
-//recupère l'url du site pour futur scan
-char* getSiteURL() {
-    static char url[256];  // Taille maximale pour stocker l'URL
-    printf("\nEntrez l'URL du site à scanner: ");
-
-    // Utilisation de scanf pour capturer l'URL
-    if (scanf("%255s", url) == 1) {
-        return url;  // Retourne l'URL saisie
-    } else {
-        fprintf(stderr, "Erreur lors de la lecture de l'URL.\n");
-        return NULL;
-    }
-}
-
-//fonction pour recupéré la clé api de WPscan dans ~/.wpscankey
-char* getWpscanAPIKey() {
-    
-    static char apiKey[64];  // Taille maximale pour la clé API
-    char *homeDir = getenv("HOME");  // Récupère le chemin vers le home directory
-    if (homeDir == NULL) {
-        fprintf(stderr, "Erreur: Impossible de trouver le home directory.\n");
-        return NULL;
-    }
-
-    // Construire le chemin vers ~/.wpscankey
-    char keyFilePath[64];
-    snprintf(keyFilePath, sizeof(keyFilePath), "%s/.wpscankey", homeDir);
-
-    FILE *file = fopen(keyFilePath, "r");
-    if (file == NULL) {
-        // Si le fichier n'existe pas ou ne peut pas être lu
-
-        fprintf(stderr, "Le fichier %s n'existe pas ou ne peut être lu.\n", keyFilePath);
-        return NULL;
-    }
-
-    if (fgets(apiKey, sizeof(apiKey), file) != NULL) {
-
-        apiKey[strcspn(apiKey, "\n")] = '\0';  // Supprimer le retour à la ligne de l'API Key
-        fclose(file);
-        return apiKey;
-    } else {
-
-        fprintf(stderr, "Le fichier %s est vide ou ne peut être lu correctement.\n", keyFilePath);
-        fclose(file);
-        return NULL;
-    }
-}
-
-
-/////////////////////////////////////////////////////////////
-///////////////////////////CLEARED///////////////////////////
-/////////////////////////////////////////////////////////////
-
-int checkDependencies(const char *prog, const char *command) {
-    //verifie que la commande donnée est bien installé et fonctionnel
-   
-    // Vérification des arguments d'entrée
-    if (prog == NULL || command == NULL) {
-        fprintf(stderr, "\033[41mArguments invalides : prog ou command est NULL.\033[0m\n");
-        return 1;
-    }
-
-    int status = system(command);
-    
-    if (status == -1) {
-        // Une erreur system()
-        fprintf(stderr, "\033[41mErreur lors de l'exécution de la commande : %s. Raison : %s\033[0m\n", command, strerror(errno));
-        return 1;
-
-    } else if (WIFEXITED(status)) {
-        // Vérification que la commande s'est arrêtée normalement
-        int exit_code = WEXITSTATUS(status);
-
-        // Traitement spécial pour Enum4Linux qui retourne != 0
-        if (strcmp(prog, "Enum4Linux") == 0 && exit_code == 255) {
-            printf("\033[32m%s est installé et fonctionne correctement.\033[0m\n", prog);
-            return 0;  // On retourne 0 ici puisque le programme a fonctionné comme attendu
-        }
-
-        // Vérification du code de sortie pour les autres programmes
-        if (exit_code == 0) {
-            printf("\033[32m%s est installé et fonctionne correctement.\033[0m\n", prog);
-            return 0;
-        } else {
-            fprintf(stderr, "\033[31m%s n'a pas fonctionné correctement (code de sortie : %d).\033[0m\n", prog, exit_code);
-            return exit_code;
-        }
-        
-    } else {
-        // Si la commande ne s'est pas terminée normalement
-        fprintf(stderr, "\033[31mLa commande %s n'a pas terminé normalement.\033[0m\n", command);
-        return 1;
-    }
-}
-
-int createScanDirectory(char *directoryName, size_t size) {
-    // Fonction pour créer un dossier avec le format "scan(%d-%H-%M)"
-    
-    // Récupérer la date et l'heure actuelle
-    time_t rawtime;
-    struct tm *timeinfo;
-
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-
-    // Formater le nom du dossier: scan(%d-%H-%M)
-    snprintf(directoryName, size, "secscan%02d-%02dh-%02dm", 
-             timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min);
-
-    // Créer le dossier avec les permissions par défaut (0755)
-    if (mkdir(directoryName, 0755) != 0) {
-        fprintf(stderr, "\033[31mErreur lors de la création du dossier %s : %s\033[0m\n", directoryName, strerror(errno));
-        return 1;
-    }
-
-    return 0;
-}
-
-int nmapVulnScanner(const char *target, const char *directoryName) {
-    // Fonction principale pour exécuter un scan Nmap sur une cible
-    if (target == NULL) {
-        fprintf(stderr, "\033[31mErreur: la cible est NULL.\033[0m\n");
-        return 1;
-    }
-
-    // Formater la commande Nmap avec un fichier de sortie dans le nouveau dossier
-    char nmapCommand[200];
-    snprintf(nmapCommand, sizeof(nmapCommand), "nmap -sV -sC %s -oN %s/nmapScan.txt", target, directoryName);
-
-    printf("\n\033[1mCela peut prendre un peu de temps, veuillez patienter...\033[0m\n");
-
-    // Exécuter la commande Nmap
-    if (system(nmapCommand) == -1) {
-        perror("\033[31mErreur lors de l'exécution de nmap\033[0m\n");
-        return 1;
-    }
-
-    printf("\n\033[32mScan terminé avec succès. Les résultats sont disponibles dans le fichier %s/nmapScan.txt\033[0m\n", directoryName);
-    return 0;
-}
-
+// Fonction pour vérifier si une IP ou un domaine répond au ping
 int isHostAlive(const char *ip_address) {
-    // Fonction pour vérifier si une IP ou un domaine répond au ping
+    
     if (ip_address == NULL) {
         fprintf(stderr, "\033[31mErreur: l'adresse IP ou nom d'hôte est NULL.\033[0m\n");
         return 1;
@@ -259,8 +224,22 @@ int isHostAlive(const char *ip_address) {
     return 0;
 }
 
+//recupère l'url du site pour futur scan
+char* getSiteURL() {
+    static char url[256];  // Taille maximale d'URL
+    printf("\nEntrez l'URL du site à scanner: ");
+
+    if (scanf("%255s", url) == 1) {
+        return url;  // Retourne l'URL saisie
+    } else {
+        fprintf(stderr, "Erreur lors de la lecture de l'URL.\n");
+        return NULL;
+    }
+}
+
+// Utilisé pour créer la variable target, mode: 0 récupéré par la ligne de commande (argv[1]), mode 1 par fichier (via -s ou -us)
 char* targetSnatcher(const char *source, const int extractionMode) {
-    // Utilisé pour créer la variable target, mode: 0 récupéré par la ligne de commande (argv[1]), mode 1 par fichier (via -s ou -us)
+    
     char *host = NULL;
 
     switch (extractionMode) {
@@ -281,241 +260,9 @@ char* targetSnatcher(const char *source, const int extractionMode) {
     return host;  // Retourne la chaîne du target
 }
 
-/////////////////////////////////////////////////////////////
-
-
-void enum4linuxSMBvulnScanner(int smb_found, const char directoryName[], const char target[]) {
-    //Function pour le scan de Enum4Linux
-    if (smb_found) {
-
-        printf("\n\033[1;45;33mADDITIONNEL: Scan SMB via Enum4Linux\033[0m\n\n");
-
-        char enum4linuxCommand[100];
-        snprintf(enum4linuxCommand, sizeof(enum4linuxCommand), "enum4linux %s > %s/enum4linxScan.txt", target, directoryName);
-
-        printf("\n\033[1mCela peut prendre un peu de temps veuillez patienter...\033[0m\n");
-        if (system(enum4linuxCommand) == -1) {
-            perror("\033[31mErreur lors de l'exécution de Enum4Linux\033[0m\n");
-            return;
-        } else {
-            char readScan[100];
-            snprintf(readScan, sizeof(readScan), "cat %s/enum4linxScan.txt", directoryName);
-
-            system(readScan);
-        }
-        return;
-
-    } else {return;}
-}
-
-/////////////////////////////////////////////////////////////
-////////////////////////TO BE UPDATED////////////////////////
-/////////////////////////////////////////////////////////////
-
-
-// pour ces 3 : 
-// - rajouter une fonction qui demandera l'url 
-
-void wpscanWordpressScanner(int website_found, const char directoryName[], char target[]) {
-    //Function pour le scan de WPscan
-
-    char *url = getSiteURL();  // getSiteURL retourne un pointeur, pas une chaîne directement
-
-    if (url != NULL && strlen(url) > 4) {  
-        strncpy(url, target, sizeof(url) - 1);  
-        url[sizeof(url) - 1] = '\0'; 
-    } 
-
-    if (website_found) {
-
-        printf("\n\033[1;45;33mADDITIONNEL: Scan WordPress via WPscan (avec Token)\033[0m\n\n");
-
-        //recupération de la clé api si présente
-        char *apiKey = getWpscanAPIKey();
-        char apikeyInput[64];
-        
-        char wpscanCommand[128];
-        if (apiKey == NULL) {
-            printf("\033[43m[Warning]\033[0mAucune clé d'api trouvé dans ~/.wpscankey\n");
-            snprintf(wpscanCommand, sizeof(wpscanCommand), "wpscan --url %s -o %s/wpScan.txt", url, directoryName);
-        } else {
-            snprintf(apikeyInput, sizeof(apikeyInput), "--api-token %s", apiKey);
-            snprintf(wpscanCommand, sizeof(wpscanCommand), "wpscan --url %s %s -o %s/wpScan.txt", url, apikeyInput, directoryName);
-        }
-
-        printf("%s\n", wpscanCommand);
-        printf("\n\033[1mCela peut prendre un peu de temps veuillez patienter...\033[0m\n");
-        if (system(wpscanCommand) == -1) {
-            perror("\033[31mErreur lors de l'exécution de WPscan\033[0m\n");
-            return;
-        } else {
-            char readScan[100];
-            snprintf(readScan, sizeof(readScan), "cat %s/wpScan.txt", directoryName);
-
-            system(readScan);
-        }
-
-    } else {return;}
-}
-
-void dirsearchWeb(int dodir, const char directoryName[], const char target[]) {
-    //Function pour le scan de dirsearch
-    if (dodir) {
-
-        printf("\n\033[1;45;33mADDITIONNEL: Enumération Basique des dossiers Web\033[0m\n\n");
-
-        char dirsearchCommand[100];
-        snprintf(dirsearchCommand, sizeof(dirsearchCommand), "dirsearch -u %s/ > %s/dirsearch.txt", target, directoryName);
-
-        printf("\n\033[1mCela peut prendre un peu de temps veuillez patienter...\033[0m\n");
-        if (system(dirsearchCommand) == -1) {
-            perror("\033[31mErreur lors de l'exécution de Dirsearch\033[0m\n");
-            return;
-        } else {
-            char readScan[100];
-            snprintf(readScan, sizeof(readScan), "cat %s/dirsearch.txt", directoryName);
-
-            system(readScan);
-        }
-
-    } else {return;}
-}
-
-int niktoWebsiteScanner(int website_found, const char directoryName[], const char website[]) {
-    //Function pour le scan de Nikto
-
-    if (website_found) {
-
-        printf("\n\033[1;45;33mADDITIONNEL: Scan site internet via Nikto\033[0m\n\n");
-
-        char niktoCommand[100];
-        snprintf(niktoCommand, sizeof(niktoCommand), "nikto -h %s -output %s/niktoScan.txt", website, directoryName);
-
-        if (system(niktoCommand) == -1) {
-            perror("\033[31mErreur lors de l'exécution de Nikto\033[0m\n");
-            return 1;
-        } 
-        
-        return 0;
-
-    } else {return 0;}
-}
-
-/////////////////////////////////////////////////////////////
-
-
-
-
-
-
-
-
-
-/////////////////////////////////////////////////////////////
-///////////////////////////CLEARED///////////////////////////
-/////////////////////////////////////////////////////////////
-
-int argumentChecking(int argc, char *argv[]) {
-    // return une valeur pour argVariable (utilisé pour les fichié en entré)
-
-    for (int i = 1; i < argc ; i++) { 
-
-        if (strcmp(argv[i], "-td") == 0) {
-            //option pour tester les dependances
-            td_found = 1;
-            return 1; //si l'option est présente elle sera seul lancer
-
-
-        } else if (strcmp(argv[i], "--install") == 0) {
-            //option pour installer les dependances
-            install_found = 1;
-            return 1; //si l'option est présente elle sera seul lancer
-
-
-        } else if ((strcmp(argv[i], "--search") == 0) || (strcmp(argv[i], "-s") == 0)) {
-            //un fichier à été donner et il doit être filtré (raw nmap output)
-            toBeFiltered = 1; //doit être filtré avant traitement par Searchsploit
-            search_found = 1; //sera cherché
-            return i+1; // pour argVariable (donne l'emplacement du fichier d'entré)
-
-        } else if ((strcmp(argv[i], "--unfiltered-search") == 0) || (strcmp(argv[i], "-us") == 0)) {
-            // un fichier à été donner 
-            toBeFiltered = 0; //il n'a pas été filtré / ne doit pas l'être
-            search_found = 1; //sera cherché
-            return i+1;
-
-        } else if (i == 1) {
-            continue;
-
-        } else {
-            fprintf(stderr, "\033[31mle paramètre %s est inconnu.\033[0m\n", argv[i]);
-            return -1;
-        }
-    }
-    return 0;
-
-}
-
-void additionnalTesting(const char directoryName[], char target[], const int website_found, const int smb_found) {
-
-    //ajouter tout les scans additionnels ici 
-    //---------------------------------------
-    
-
-    if (website_found) {
-        //si un site internet est trouvé propose 3 outils (nikto, dirsearch & wpscan)
-        
-        char input; // simple var pour stocker l'input user
-
-        printf("\n\033[1;4mUn site internet à été trouvé, voulez-vous realisé un scan Nikto ?\033[1;0m \ny/n : \033[0m");
-        scanf(" %c", &input);
-        printf("\n");
-
-        if (input == 'y') { 
-            if (niktoWebsiteScanner(1, directoryName, target) != 0) {
-                fprintf(stderr, "\033[31mErreur lors de l'exécution de Nikto\033[0m\n");
-            }
-        } else {
-            printf("Le scan Nikto ne sera pas réalisé.\n");
-        }
-
-
-        //offre scan dirsearch à l'utilisateur
-        
-        printf("\n\033[1;4mUn site internet à été trouvé, voulez-vous realisé une enumération des dossiers via Dirsearch ?\033[1;0m \ny/n : \033[0m");
-        scanf(" %c", &input);
-        printf("\n");
-
-        if (input == 'y') { 
-            dirsearchWeb(1,directoryName, target);
-        } else {
-            printf("l'énumération dirsearch ne sera pas réalisé.\n");
-        }
-
-        //offre scan wpscan à l'utilisateur
-        printf("\n\033[1;4mUn site internet à été trouvé, voulez-vous ajouter un scan WPscan (pour les sites utilisant WordPress) ?\033[1;0m \ny/n : \033[0m");
-        scanf(" %c", &input);
-        printf("\n");
-
-        if (input == 'y') { 
-            wpscanWordpressScanner(1, directoryName, target);
-        } else {
-            printf("le scan WPscan ne sera pas réalisé.\n");
-        }
-    }
-
-
-    enum4linuxSMBvulnScanner(smb_found, directoryName, target);
-    //---------------------------------------
-
-    printf("\n\033[1;34m-------------------------------\033[0m\n");
-    printf("\n\033[1;34mFin des scans\033[0m\n");
-    return;
-    
-}
-
+//verifie les services trouvé dans le fichier filtré par filterNmapOutput()
 int servicesChecker(char *serviceFiles) {
-    //verifie les services trouvé et offre des testes additionnels
+
     FILE *servicesFile = fopen(serviceFiles, "r");
     
     if (servicesFile == NULL) {
@@ -582,7 +329,311 @@ int servicesChecker(char *serviceFiles) {
     return moreScans;
 }
 
-/////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////|
+/////////////////////////////////////////////////////////////|
+
+
+
+/////////////////////////////////////////////////////////////|
+//////////////////////FONCTION DE SCAN///////////////////////|
+/////////////////////////////////////////////////////////////|
+
+
+// Fonction principale pour exécuter un scan Nmap sur une cible
+int nmapVulnScanner(const char *target, const char *directoryName) {
+    
+    if (target == NULL) {
+        fprintf(stderr, "\033[31mErreur: la cible est NULL.\033[0m\n");
+        return 1;
+    }
+
+    // Formater la commande Nmap avec un fichier de sortie dans le nouveau dossier
+    char nmapCommand[200];
+    snprintf(nmapCommand, sizeof(nmapCommand), "nmap -sV -sC %s -oN %s/nmapScan.txt", target, directoryName);
+
+    printf("\n\033[1mCela peut prendre un peu de temps, veuillez patienter...\033[0m\n");
+
+    // Exécuter la commande Nmap
+    if (system(nmapCommand) == -1) {
+        perror("\033[31mErreur lors de l'exécution de nmap\033[0m\n");
+        return 1;
+    }
+
+    printf("\n\033[32mScan terminé avec succès. Les résultats sont disponibles dans le fichier %s/nmapScan.txt\033[0m\n", directoryName);
+    return 0;
+}
+
+//Function pour le scan de Nikto
+int niktoWebsiteScanner(int website_found, const char directoryName[], const char website[]) {
+    
+
+    char *url = getSiteURL();
+
+    if (url == NULL || strlen(url) < 4) { 
+        //si une valeur de moins de 4char est entré alors l'url est modifié pour garder la valeur de base website[]
+        url = (char*)website;
+    }
+
+    printf("\n\033[1;45;33mADDITIONNEL: Scan site internet via Nikto\033[0m\n\n");
+
+    char niktoCommand[100];
+    snprintf(niktoCommand, sizeof(niktoCommand), "nikto -h %s -output %s/niktoScan.txt", url, directoryName);
+
+    printf("command : %s\n", niktoCommand);
+
+    if (system(niktoCommand) == -1) {
+        perror("\033[31mErreur lors de l'exécution de Nikto\033[0m\n");
+        return 1;
+    } 
+    
+    return 0;
+}
+
+//Function pour le scan de dirsearch
+void dirsearchWeb(int dodir, const char directoryName[], const char target[]) {
+    
+
+    char *url = getSiteURL();
+
+    if (url == NULL || strlen(url) < 4) { 
+        //si une valeur de moins de 4char est entré alors l'url est modifié pour garder la valeur de base website[]
+        url = (char*)target;
+    }
+
+    if (dodir) {
+
+        printf("\n\033[1;45;33mADDITIONNEL: Enumération Basique des dossiers Web\033[0m\n\n");
+
+        char dirsearchCommand[100];
+        snprintf(dirsearchCommand, sizeof(dirsearchCommand), "dirsearch -u %s/ -o %s/dirsearch.txt", target, directoryName);
+
+        printf("\n\033[1mCela peut prendre un peu de temps veuillez patienter...\033[0m\n");
+        if (system(dirsearchCommand) == -1) {
+            perror("\033[31mErreur lors de l'exécution de Dirsearch\033[0m\n");
+            return;
+        } else {
+            char readScan[100];
+            snprintf(readScan, sizeof(readScan), "cat %s/dirsearch.txt", directoryName);
+
+            system(readScan);
+        }
+
+    } else {return;}
+}
+
+//fonction pour recupéré la clé api de WPscan dans ~/.wpscankey
+char* getWpscanAPIKey() {
+    
+    static char apiKey[64];  // Taille maximale pour la clé API
+    char *homeDir = getenv("HOME");  // Récupère le chemin vers le home directory
+    if (homeDir == NULL) {
+        fprintf(stderr, "Erreur: Impossible de trouver le home directory.\n");
+        return NULL;
+    }
+
+    // Construire le chemin vers ~/.wpscankey
+    char keyFilePath[64];
+    snprintf(keyFilePath, sizeof(keyFilePath), "%s/.wpscankey", homeDir);
+
+    FILE *file = fopen(keyFilePath, "r");
+    if (file == NULL) {
+        // Si le fichier n'existe pas ou ne peut pas être lu
+
+        fprintf(stderr, "Le fichier %s n'existe pas ou ne peut être lu.\n", keyFilePath);
+        return NULL;
+    }
+
+    if (fgets(apiKey, sizeof(apiKey), file) != NULL) {
+
+        apiKey[strcspn(apiKey, "\n")] = '\0';  // Supprimer le retour à la ligne de l'API Key
+        fclose(file);
+        return apiKey;
+    } else {
+
+        fprintf(stderr, "Le fichier %s est vide ou ne peut être lu correctement.\n", keyFilePath);
+        fclose(file);
+        return NULL;
+    }
+}
+
+//Function pour le scan de WPscan
+void wpscanWordpressScanner(int website_found, const char directoryName[], char target[]) {
+    
+
+    char *url = getSiteURL();
+
+    if (url == NULL || strlen(url) < 4) { 
+        //si une valeur de moins de 4char est entré alors l'url est modifié pour garder la valeur de base website[]
+        url = (char*)target;
+    }
+
+    if (website_found) {
+
+        printf("\n\033[1;45;33mADDITIONNEL: Scan WordPress via WPscan (avec Token)\033[0m\n\n");
+
+        //recupération de la clé api si présente
+        char *apiKey = getWpscanAPIKey();
+        char apikeyInput[64];
+        
+        char wpscanCommand[128];
+        if (apiKey == NULL) {
+            printf("\033[43m[Warning]\033[0mAucune clé d'api trouvé dans ~/.wpscankey\n");
+            snprintf(wpscanCommand, sizeof(wpscanCommand), "wpscan --url %s -o %s/wpScan.txt", url, directoryName);
+        } else {
+            snprintf(apikeyInput, sizeof(apikeyInput), "--api-token %s", apiKey);
+            snprintf(wpscanCommand, sizeof(wpscanCommand), "wpscan --url %s %s -o %s/wpScan.txt", url, apikeyInput, directoryName);
+        }
+
+        printf("%s\n", wpscanCommand);
+        printf("\n\033[1mCela peut prendre un peu de temps veuillez patienter...\033[0m\n");
+        if (system(wpscanCommand) == -1) {
+            perror("\033[31mErreur lors de l'exécution de WPscan\033[0m\n");
+            return;
+        } else {
+            char readScan[100];
+            snprintf(readScan, sizeof(readScan), "cat %s/wpScan.txt", directoryName);
+
+            system(readScan);
+        }
+
+    } else {return;}
+}
+
+//Function pour le scan de Enum4Linux
+void enum4linuxSMBvulnScanner(int smb_found, const char directoryName[], const char target[]) {
+    
+    if (smb_found) {
+
+        printf("\n\033[1;45;33mADDITIONNEL: Scan SMB via Enum4Linux\033[0m\n\n");
+
+        char enum4linuxCommand[100];
+        snprintf(enum4linuxCommand, sizeof(enum4linuxCommand), "enum4linux %s > %s/enum4linxScan.txt", target, directoryName);
+
+        printf("\n\033[1mCela peut prendre un peu de temps veuillez patienter...\033[0m\n");
+        if (system(enum4linuxCommand) == -1) {
+            perror("\033[31mErreur lors de l'exécution de Enum4Linux\033[0m\n");
+            return;
+        } else {
+            char readScan[100];
+            snprintf(readScan, sizeof(readScan), "cat %s/enum4linxScan.txt", directoryName);
+
+            system(readScan);
+        }
+        return;
+
+    } else {return;}
+}
+
+
+/////////////////////////////////////////////////////////////|
+/////////////////////////////////////////////////////////////|
+
+
+
+/////////////////////////////////////////////////////////////|
+////////////////////FONCTIONS PRINCIPALE/////////////////////|
+/////////////////////////////////////////////////////////////|
+
+
+// verifie les arguments d'entré et retourne une valeur pour argVariable (utilisé pour localisé les fichiers dans les fonctions lié au fichier)
+int argumentChecking(int argc, char *argv[]) {
+    
+
+    for (int i = 1; i < argc ; i++) { 
+
+        if (strcmp(argv[i], "-td") == 0) {
+            //option pour tester les dependances
+            td_found = 1;
+            return 1; //si l'option est présente elle sera seul lancer
+
+
+        } else if (strcmp(argv[i], "--install") == 0) {
+            //option pour installer les dependances
+            install_found = 1;
+            return 1; //si l'option est présente elle sera seul lancer
+
+
+        } else if ((strcmp(argv[i], "--search") == 0) || (strcmp(argv[i], "-s") == 0)) {
+            //un fichier à été donner et il doit être filtré (raw nmap output)
+            toBeFiltered = 1; //doit être filtré avant traitement par Searchsploit
+            search_found = 1; //sera cherché
+            return i+1; // pour argVariable (donne l'emplacement du fichier d'entré)
+
+        } else if ((strcmp(argv[i], "--unfiltered-search") == 0) || (strcmp(argv[i], "-us") == 0)) {
+            // un fichier à été donner 
+            toBeFiltered = 0; //il n'a pas été filtré / ne doit pas l'être
+            search_found = 1; //sera cherché
+            return i+1;
+
+        } else if (i == 1) {
+            continue;
+
+        } else {
+            fprintf(stderr, "\033[31mle paramètre %s est inconnu.\033[0m\n", argv[i]);
+            return -1;
+        }
+    }
+    return 0;
+
+}
+
+//réalise les tests automatique (trouvé via les variable de servicesChecker())
+void additionnalTesting(const char directoryName[], char target[], const int website_found, const int smb_found) {
+
+    if (website_found) {
+        //si un site internet est trouvé propose 3 outils (nikto, dirsearch & wpscan)
+        
+        char input; // simple var pour stocker l'input user
+
+        printf("\n\033[1;4mUn site internet à été trouvé, voulez-vous realisé un scan Nikto ?\033[1;0m \ny/n : \033[0m");
+        scanf(" %c", &input);
+        printf("\n");
+
+        if (input == 'y') { 
+            if (niktoWebsiteScanner(1, directoryName, target) != 0) {
+                fprintf(stderr, "\033[31mErreur lors de l'exécution de Nikto\033[0m\n");
+            }
+        } else {
+            printf("Le scan Nikto ne sera pas réalisé.\n");
+        }
+
+
+        //offre scan dirsearch à l'utilisateur
+        
+        printf("\n\033[1;4mUn site internet à été trouvé, voulez-vous realisé une enumération des dossiers via Dirsearch ?\033[1;0m \ny/n : \033[0m");
+        scanf(" %c", &input);
+        printf("\n");
+
+        if (input == 'y') { 
+            dirsearchWeb(1,directoryName, target);
+        } else {
+            printf("l'énumération dirsearch ne sera pas réalisé.\n");
+        }
+
+        //offre scan wpscan à l'utilisateur
+        printf("\n\033[1;4mUn site internet à été trouvé, voulez-vous ajouter un scan WPscan (pour les sites utilisant WordPress) ?\033[1;0m \ny/n : \033[0m");
+        scanf(" %c", &input);
+        printf("\n");
+
+        if (input == 'y') { 
+            wpscanWordpressScanner(1, directoryName, target);
+        } else {
+            printf("le scan WPscan ne sera pas réalisé.\n");
+        }
+    }
+
+    enum4linuxSMBvulnScanner(smb_found, directoryName, target);
+
+
+
+    //fin du programme
+    printf("\n\033[1;34m-------------------------------\033[0m\n");
+    printf("\n\033[1;34mFin des scans\033[0m\n");
+    return;
+    
+}
+
 int main(int argc, char *argv[]) {
     
     
@@ -772,12 +823,4 @@ int main(int argc, char *argv[]) {
 
     } 
 
-}
-
-
-
-
-//function de test
-int main1() {
-    enum4linuxSMBvulnScanner(1,"test","127.0.0.1");
 }
