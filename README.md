@@ -8,7 +8,7 @@ En plus de cela, le programme vérifie s'il existe des scans additionnels pertin
 
 L'objectif final de VultureSec est de fournir un scan rapide et automatisé, spécifiquement adapté aux CTFs. D'autres tests additionnels seront intégrés en fonction des outils de scan disponibles.
 
-**Disclaimer :** Je ne suis pas un développeur expérimenter, et j'ai réalisé ce projet en C principalement pour m'entraîner et mieux comprendre le langage. 
+**Disclaimer :** Je ne suis pas un développeur, j'ai réalisé ce projet en C principalement pour m'entraîner et mieux comprendre le langage. 
 Il est donc probable (et certains) qu'il contienne des erreurs ou des problèmes d'optimisations. Si vous avez des idées pour l'améliorer ou des suggestions d'ajouts, n'hésitez pas à me les proposer.
 
 ## Installation
