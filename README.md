@@ -2,14 +2,16 @@
 
 VultureSec est un petit projet personnel conçu pour automatiser le scan de cibles dans le cadre de CTFs (Capture The Flag) FullPWN où Boot2Root. L'objectif est d'avoir un seul programme capable de centraliser et d'automatiser différentes étapes de reconnaissance et de detection, en s'appuyant sur des outils CLI sous Linux, comme Nmap ou Nikto par exemple.
 
-Le programme commence par scanner la cible avec Nmap, identifiant ainsi tous les services ouverts ainsi que leurs versions respectives. VultureSec utilise ensuite Searchsploit pour rechercher des vulnérabilités CVE associées aux services détectés via ExploitDB, listant ainsi les CVE potentiels.
+Le programme commence par scanner la cible avec Nmap, identifiant ainsi tous les services ouverts ainsi que leurs versions respectives. Il utilise ensuite Searchsploit pour rechercher des vulnérabilités CVE associées aux services détectés via ExploitDB, listant ainsi les CVE potentiels.
 
 En plus de cela, le programme vérifie s'il existe des scans additionnels pertinents et les propose à l'utilisateur, comme par exemple l'utilisation d'enum4linux pour les services SMB où une serie de scan pour les sites internet.
 
-L'objectif final de VultureSec est de fournir un scan rapide et automatisé, spécifiquement adapté aux CTFs. D'autres tests additionnels seront intégrés en fonction des outils de scan disponibles.
+L'objectif final de VultureSec est de fournir un scan simple et automatisé, spécifiquement adapté aux CTFs. D'autres tests additionnels seront intégrés en fonction des outils de scan disponibles.
 
-**Disclaimer :** Je ne suis pas un développeur, j'ai réalisé ce projet en C principalement pour m'entraîner et mieux comprendre le langage. 
+**Disclaimer :** Je ne suis pas un développeur, j'ai réalisé ce projet en C principalement pour m'entraîner et mieux comprendre le langage. Ce code est juste un Script en C réalisé par envie d'apprendre le language & l'envie d'automatisation par quelqu'un qui en avait marre de mettre toujours les "mêmes commandes" dans le meme ordre.
 Il est donc probable (et certains) qu'il contienne des erreurs ou des problèmes d'optimisations. Si vous avez des idées pour l'améliorer ou des suggestions d'ajouts, n'hésitez pas à me les proposer.
+
+Liste des outils utilisé : [Nmap](https://github.com/nmap/nmap), [Nikto](https://github.com/sullo/nikto), [Searchsploit](https://github.com/rad10/SearchSploit.py), [Enum4Linux](https://github.com/rad10/SearchSploit.py), [Dirsearch](https://github.com/rad10/SearchSploit.py), [WPscan](https://github.com/wpscanteam/wpscan)
 
 ## Installation
 
